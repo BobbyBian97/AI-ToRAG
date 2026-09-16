@@ -174,7 +174,7 @@ ai-torag/
 ├── core/             # 领域逻辑：chunking / retrieval / rerank / prompt
 ├── infra/            # milvus.py / pg.py / minio.py / redis.py
 ├── evals/            # 黄金问答集 + RAGAS 评估脚本
-└── deploy/           # docker-compose.yml / helm/
+└── deploy/           # podman-compose.dev.yml / helm/
 ```
 
 **model-gateway 关键约束**：三个模型角色各定义一个接口（`embed(texts) -> vectors`、`rerank(query, docs) -> scores`、`generate(messages) -> stream`），业务代码只依赖接口。这是全系统唯一一处必须坚持的抽象——因为模型迭代是 RAG 效果提升的最大杠杆，必须保证"换模型 = 改一行配置"。
@@ -254,7 +254,7 @@ GET  /api/v1/debug/search            # 调试台：裸检索，返回全部命�
 
 ## 10. 部署方案
 
-### 一期（Docker Compose，单机/双机试点）
+### 一期（Podman Compose，单机/双机试点）
 
 ```
 compose: api ×1 · worker ×1 · postgres · redis · minio · milvus(standalone)
