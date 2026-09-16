@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-torag"
+version = "0.1.0"
+description = "企业级 RAG 问答系统（AI-ToRAG）"
+readme = "企业RAG系统设计书.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic>=2",
+    "pydantic-settings",
+    "SQLAlchemy>=2",
+    "psycopg[binary]",
+    "redis",
+    "rq",
+    "minio",
+    "pymilvus>=2.5,<3",
+    "httpx",
+    "python-multipart",
+    "mistune",
+    "beautifulsoup4",
+    "lxml",
+    "sse-starlette",
+    "pytest",
+    "ruff",
+]
+
+[project.optional-dependencies]
+# 重型解析依赖（MinerU 处理 PDF/扫描件、Tika 处理 Office），仅声明，默认不安装
+parsing-heavy = ["mineru>=2", "tika"]
+
+[tool.setuptools.packages.find]
+include = ["core*", "infra*", "services*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

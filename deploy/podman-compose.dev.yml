@@ -1,0 +1,122 @@
+# 开发环境依赖编排（Podman）：postgres / redis / minio / milvus standalone（含 etcd 与 milvus 专用 minio）。
+# 仅依赖服务，不含应用本身（API/worker 本地跑）。使用（二选一）：
+#   podman compose -f deploy/podman-compose.dev.yml up -d    # podman >= 4.7，需装有 compose provider
+#   podman-compose -f deploy/podman-compose.dev.yml up -d    # 独立工具，>= 1.0.6（支持 healthcheck 条件依赖）
+# 说明：milvus 的元数据与对象存储用独立实例（etcd + minio-milvus），与应用 MinIO 互不干扰；
+#       端口均 > 1024，rootless 模式可直接运行。
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: torag-postgres
+    environment:
+      POSTGRES_USER: torag
+      POSTGRES_PASSWORD: torag
+      POSTGRES_DB: torag
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U torag -d torag"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7
+    container_name: torag-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # 应用用 MinIO：原始文件存储（.env: MINIO_ENDPOINT=localhost:9000）
+  minio:
+    image: minio/minio:latest
+    container_name: torag-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # 控制台
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # ---- Milvus standalone 及其依赖（参考 milvus 官方 standalone compose） ----
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.14
+    container_name: torag-etcd
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    volumes:
+      - etcd_data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # milvus 专用 MinIO（内部依赖，不对外暴露端口）
+  minio-milvus:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: torag-minio-milvus
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    command: minio server /minio_data
+    volumes:
+      - minio_milvus_data:/minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  milvus:
+    image: milvusdb/milvus:v2.5.6
+    container_name: torag-milvus
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio-milvus:9000
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio-milvus:
+        condition: service_healthy
+    ports:
+      - "19530:19530"  # gRPC（.env: MILVUS_URI=http://localhost:19530）
+      - "9091:9091"    # metrics / healthz
+    volumes:
+      - milvus_data:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 5
+
+volumes:
+  pg_data:
+  redis_data:
+  minio_data:
+  etcd_data:
+  minio_milvus_data:
+  milvus_data:
